@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space Shooter</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      user-select: none;
+      font-family: 'Press Start 2P', monospace;
+      color: #fff;
+    }
+
+    /*
+      RESPONSIVIDADE:
+      O #game-container tem tamanho fixo de 600x700 px internamente.
+      O JS calcula um fator `scale` baseado no tamanho da janela e
+      aplica transform: scale() neste container, fazendo tudo
+      (canvas + HUD + overlays) escalar junto como uma unidade.
+    */
+    #game-container {
+      position: fixed;          /* fixo na tela, reposicionado via JS */
+      width: 600px;
+      height: 700px;
+      transform-origin: top left; /* a escala parte do canto superior esquerdo */
+    }
+
+    canvas { display: block; }
+
+    /* ── HUD ── */
+    #hud {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(0,0,0,0.65);
+      font-size: 20px;
+      z-index: 5;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #hud .hud-lives { color: #ff4d4d; }
+    #hud .hud-score { color: #fff; }
+    #hud .hud-level { color: #00aaff; }
+
+    /* ── MENU ── */
+    #menu {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 24px;
+      background: rgba(0,0,0,0.88);
+      z-index: 10;
+    }
+    #menu h1 {
+      font-size: 24px; color: #00ff88;
+      text-shadow: 0 0 18px #00ff88;
+      letter-spacing: 3px; text-align: center;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    #menu .subtitle { font-size: 8px; color: #aaa; letter-spacing: 3px; }
+    #menu .record-box {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid #333;
+      padding: 14px 26px; text-align: center;
+    }
+    #menu .record-label { font-size: 7px; color: #888; margin-bottom: 10px; }
+    #menu .record-value { font-size: 18px; color: #ffd700; }
+    #btn-play {
+      background: transparent; border: 2px solid #00ff88;
+      color: #00ff88; font-family: inherit; font-size: 13px;
+      padding: 13px 32px; cursor: pointer; letter-spacing: 2px;
+      transition: background 0.2s, color 0.2s;
+    }
+    #btn-play:hover { background: #00ff88; color: #000; }
+    #menu .controls-hint { font-size: 7px; color: #555; line-height: 2.2; text-align: center; }
+
+    /* ── CONFIRMAÇÃO ── */
+    #confirm-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.9);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 22px; z-index: 20;
+    }
+    #confirm-overlay p { font-size: 11px; color: #fff; text-align: center; line-height: 2.2; }
+    .confirm-btns { display: flex; gap: 20px; }
+    .confirm-btns button {
+      font-family: inherit; font-size: 10px;
+      padding: 11px 22px; cursor: pointer;
+      border: 2px solid; background: transparent;
+    }
+    #btn-yes { border-color: #ff4d4d; color: #ff4d4d; }
+    #btn-yes:hover { background: #ff4d4d; color: #000; }
+    #btn-no  { border-color: #00ff88; color: #00ff88; }
+    #btn-no:hover  { background: #00ff88; color: #000; }
+
+    /* ── GAME OVER / VITÓRIA ── */
+    #gameover-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.92);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 18px; z-index: 20;
+    }
+    #gameover-overlay h2 { font-size: 20px; animation: fadeIn 0.3s ease; }
+    #gameover-overlay .go-score { font-size: 9px; color: #aaa; }
+    #gameover-overlay .go-score span { color: #ffd700; }
+    .go-btns { display: flex; gap: 14px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+    .go-btns button {
+      font-family: inherit; font-size: 8px;
+      padding: 11px 18px; cursor: pointer;
+      border: 2px solid; background: transparent;
+    }
+    #btn-restart { border-color: #00ff88; color: #00ff88; }
+    #btn-restart:hover { background: #00ff88; color: #000; }
+    #btn-gomenu  { border-color: #888; color: #888; }
+    #btn-gomenu:hover  { background: #888; color: #000; }
+
+    /* ── TRANSIÇÃO DE NÍVEL ── */
+    #level-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.78);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; z-index: 15; pointer-events: none;
+    }
+    #level-overlay h2 { font-size: 17px; color: #00aaff; animation: fadeIn 0.3s ease; }
+    #level-overlay p  { font-size: 8px; color: #aaa; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.55; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.88); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="gameCanvas" width="600" height="700"></canvas>
+
+  <div id="hud">
+    <span class="hud-lives" id="hud-lives">♥ ♥ ♥ ♥ ♥</span>
+    <span class="hud-score" id="hud-score">PONTOS: 0</span>
+    <span class="hud-level" id="hud-level">NÍV: 1/15</span>
+  </div>
+
+  <div id="menu">
+    <h1>SPACE<br>SHOOTER</h1>
+    <p class="subtitle">► DEFENDA A GALÁXIA ◄</p>
+    <div class="record-box">
+      <p class="record-label">▲ RECORDE ▲</p>
+      <p class="record-value" id="menu-record">0</p>
+    </div>
+    <button id="btn-play">▶ JOGAR</button>
+    <div class="controls-hint">
+      WASD – MOVER &nbsp;|&nbsp; ESPAÇO – ATIRAR<br>
+      M – VOLTAR AO MENU
+    </div>
+  </div>
+
+  <div id="confirm-overlay">
+    <p>Deseja realmente<br>voltar ao MENU?<br>
+    <span style="font-size:7px;color:#888">O progresso atual será perdido.</span></p>
+    <div class="confirm-btns">
+      <button id="btn-yes">SIM</button>
+      <button id="btn-no">NÃO</button>
+    </div>
+  </div>
+
+  <div id="level-overlay">
+    <h2 id="level-title">NÍVEL 2</h2>
+    <p id="level-sub">Prepare-se!</p>
+  </div>
+
+  <div id="gameover-overlay">
+    <h2 id="go-title" style="color:#ff4d4d">GAME OVER</h2>
+    <p class="go-score">PONTUAÇÃO: <span id="go-score">0</span></p>
+    <p class="go-score">RECORDE:&nbsp;&nbsp; <span id="go-record">0</span></p>
+    <div class="go-btns">
+      <button id="btn-restart">↺ JOGAR NOVAMENTE</button>
+      <button id="btn-gomenu">⌂ MENU</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO A – REFERÊNCIAS AO DOM
+───────────────────────────────────────────────────────────────── */
+const canvas    = document.getElementById('gameCanvas');
+const ctx       = canvas.getContext('2d');
+const container = document.getElementById('game-container');
+
+const menuEl       = document.getElementById('menu');
+const hudEl        = document.getElementById('hud');
+const confirmEl    = document.getElementById('confirm-overlay');
+const levelEl      = document.getElementById('level-overlay');
+const gameoverEl   = document.getElementById('gameover-overlay');
+const menuRecordEl = document.getElementById('menu-record');
+const hudLivesEl   = document.getElementById('hud-lives');
+const hudScoreEl   = document.getElementById('hud-score');
+const hudLevelEl   = document.getElementById('hud-level');
+const goTitleEl    = document.getElementById('go-title');
+const goScoreEl    = document.getElementById('go-score');
+const goRecordEl   = document.getElementById('go-record');
+const levelTitleEl = document.getElementById('level-title');
+const levelSubEl   = document.getElementById('level-sub');
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO B – RESPONSIVIDADE POR ESCALA CSS
+   O canvas interno tem resolução fixa (GAME_W × GAME_H).
+   A função applyScale() calcula o fator de escala que faz o
+   container caber na janela atual sem distorção (fit contain),
+   e reposiciona o container para ficar centralizado.
+   É chamada no carregamento e a cada resize de janela.
+───────────────────────────────────────────────────────────────── */
+const GAME_W = 600;
+const GAME_H = 700;
+
+function applyScale() {
+  const pad    = 8; // margem mínima nas bordas da janela (px)
+  const scaleX = (window.innerWidth  - pad * 2) / GAME_W;
+  const scaleY = (window.innerHeight - pad * 2) / GAME_H;
+
+  // Usa o menor fator para não cortar nenhuma dimensão (fit contain)
+  // e nunca escala acima de 100% para não pixelar em monitores grandes
+  const scale  = Math.min(scaleX, scaleY, 1);
+
+  // Com transform-origin: top left, o elemento escalado "encolhe"
+  // para o canto superior esquerdo. Compensamos com left/top calculados
+  // para centralizar o resultado na tela.
+  const left = (window.innerWidth  - GAME_W * scale) / 2;
+  const top  = (window.innerHeight - GAME_H * scale) / 2;
+
+  container.style.transform = `scale(${scale})`;
+  container.style.left      = `${left}px`;
+  container.style.top       = `${top}px`;
+}
+
+applyScale();
+window.addEventListener('resize', applyScale);
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO C – CONSTANTES DO JOGO
+───────────────────────────────────────────────────────────────── */
+const MAX_LEVEL        = 15;
+const MAX_LIVES        = 5;
+const POINTS_PER_KILL  = 100;
+const SHOOT_COOLDOWN   = 1000; // 1 segundo em ms
+const PLAYER_SPEED     = 4;
+const BULLET_SPEED     = 7;
+const ENEMY_BULLET_SPD = 3;
+const STAR_COUNT       = 120;
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO D – VARIÁVEIS DE ESTADO DA PARTIDA
+───────────────────────────────────────────────────────────────── */
+let score = 0, lives = MAX_LIVES, level = 1;
+let gameRunning = false, paused = false;
+let animFrameId = null, lastTime = 0;
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO E – RECORDE (localStorage)
+   Persiste o melhor score entre sessões do navegador.
+───────────────────────────────────────────────────────────────── */
+const getRecord = () => parseInt(localStorage.getItem('ssRecord') || '0', 10);
+const saveRecord = v => { if (v > getRecord()) localStorage.setItem('ssRecord', String(v)); };
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO F – FUNDO ESTRELADO
+   120 estrelas com posição, velocidade e brilho aleatórios.
+   Movem para baixo e reaparecem no topo ao sair da tela.
+───────────────────────────────────────────────────────────────── */
+const stars = [];
+function initStars() {
+  stars.length = 0;
+  for (let i = 0; i < STAR_COUNT; i++) {
+    stars.push({
+      x: Math.random() * GAME_W, y: Math.random() * GAME_H,
+      r: Math.random() * 1.5 + 0.3,
+      speed: Math.random() * 0.8 + 0.2,
+      alpha: Math.random() * 0.6 + 0.4
+    });
+  }
+}
+function updateStars(dt) {
+  for (const s of stars) {
+    s.y += s.speed * dt * 0.06;
+    if (s.y > GAME_H) { s.y = 0; s.x = Math.random() * GAME_W; }
+  }
+}
+function drawStars() {
+  for (const s of stars) {
+    ctx.globalAlpha = s.alpha;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO G – PLAYER
+   Nave verde; WASD para mover; após levar dano pisca 2s.
+───────────────────────────────────────────────────────────────── */
+const player = { x: GAME_W/2, y: 620, w: 28, h: 36, lastShot: 0,
+                 invincible: false, invTimer: 0, visible: true };
+
+function resetPlayer() {
+  Object.assign(player, { x: GAME_W/2, y: 620, lastShot: 0,
+                           invincible: false, invTimer: 0, visible: true });
+}
+function updatePlayer(dt) {
+  if (keys['KeyW']||keys['ArrowUp'])    player.y -= PLAYER_SPEED;
+  if (keys['KeyS']||keys['ArrowDown'])  player.y += PLAYER_SPEED;
+  if (keys['KeyA']||keys['ArrowLeft'])  player.x -= PLAYER_SPEED;
+  if (keys['KeyD']||keys['ArrowRight']) player.x += PLAYER_SPEED;
+  player.x = Math.max(player.w/2, Math.min(GAME_W - player.w/2, player.x));
+  player.y = Math.max(player.h/2, Math.min(GAME_H - player.h/2, player.y));
+  if (player.invincible) {
+    player.invTimer -= dt;
+    player.visible = Math.floor(player.invTimer / 100) % 2 === 0;
+    if (player.invTimer <= 0) { player.invincible = false; player.visible = true; }
+  }
+}
+function drawPlayer() {
+  if (!player.visible) return;
+  const {x, y, w, h} = player;
+  ctx.save();
+  ctx.fillStyle = '#00ff88'; ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.moveTo(x, y-h/2); ctx.lineTo(x-w/2, y+h/2); ctx.lineTo(x+w/2, y+h/2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#005533'; ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(x, y-h/4); ctx.lineTo(x-w/6, y+h/4); ctx.lineTo(x+w/6, y+h/4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#00cc66';
+  ctx.beginPath(); ctx.moveTo(x-w/2,y+h/2); ctx.lineTo(x-w*.85,y+h/3); ctx.lineTo(x-w*.2,y); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+w/2,y+h/2); ctx.lineTo(x+w*.85,y+h/3); ctx.lineTo(x+w*.2,y); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO H – TIROS DO PLAYER
+   Cooldown de 1 segundo entre disparos (SHOOT_COOLDOWN).
+───────────────────────────────────────────────────────────────── */
+const playerBullets = [];
+function playerShoot(now) {
+  if (now - player.lastShot < SHOOT_COOLDOWN) return;
+  player.lastShot = now;
+  playerBullets.push({ x: player.x, y: player.y - player.h/2 });
+}
+function updatePlayerBullets(dt) {
+  for (let i = playerBullets.length-1; i >= 0; i--) {
+    playerBullets[i].y -= BULLET_SPEED * dt * 0.06;
+    if (playerBullets[i].y < -10) playerBullets.splice(i, 1);
+  }
+}
+function drawPlayerBullets() {
+  ctx.save(); ctx.fillStyle='#00ffff'; ctx.shadowColor='#00ffff'; ctx.shadowBlur=8;
+  for (const b of playerBullets) ctx.fillRect(b.x-2, b.y-8, 4, 16);
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO I – INIMIGOS
+   Quantidade aumenta 2/nível (min 3, max 30). Velocidade e
+   frequência de tiro também aumentam a cada nível.
+───────────────────────────────────────────────────────────────── */
+const enemies = [];
+const enemyCount = lvl => Math.min(3 + (lvl-1)*2, 30);
+const enemySpeed = lvl => 1 + (lvl-1)*0.2;
+
+function spawnEnemies(lvl) {
+  enemies.length = 0;
+  const count = enemyCount(lvl), cols = Math.min(count, 6);
+  const rows = Math.ceil(count/cols), spd = enemySpeed(lvl);
+  let id = 0;
+  for (let r = 0; r < rows; r++) {
+    const rc = (r < rows-1) ? cols : count - r*cols;
+    const gx = GAME_W / (rc+1);
+    for (let c = 0; c < rc && id < count; c++, id++) {
+      enemies.push({ x: gx*(c+1), y: 60+r*70, w:28, h:22, dir:1, spd,
+                     shootTimer: Math.random()*3000+1000 });
+    }
+  }
+}
+function updateEnemies(dt, now) {
+  for (let i = enemies.length-1; i >= 0; i--) {
+    const e = enemies[i];
+    e.x += e.spd * e.dir * dt * 0.06;
+    if (e.x+e.w/2 > GAME_W || e.x-e.w/2 < 0) { e.dir *= -1; e.y += 8; }
+    if (e.y+e.h/2 > GAME_H-60) { loseLife(now); enemies.splice(i,1); continue; }
+    e.shootTimer -= dt;
+    if (e.shootTimer <= 0) {
+      enemyBullets.push({ x: e.x, y: e.y+e.h/2 });
+      e.shootTimer = Math.random()*2000 + Math.max(400, 2000-level*100);
+    }
+  }
+}
+function drawEnemies() {
+  ctx.save();
+  for (const {x,y,w,h} of enemies) {
+    ctx.fillStyle='#ff3333'; ctx.shadowColor='#f00'; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.moveTo(x,y+h/2); ctx.lineTo(x-w/2,y-h/2); ctx.lineTo(x+w/2,y-h/2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ff9999'; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.arc(x,y-2,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#c00'; ctx.shadowBlur=0;
+    ctx.beginPath(); ctx.moveTo(x-w/2,y-h/2); ctx.lineTo(x-w*.8,y-h/6); ctx.lineTo(x-w*.1,y); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+w/2,y-h/2); ctx.lineTo(x+w*.8,y-h/6); ctx.lineTo(x+w*.1,y); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO J – TIROS DOS INIMIGOS
+───────────────────────────────────────────────────────────────── */
+const enemyBullets = [];
+function updateEnemyBullets(dt, now) {
+  for (let i = enemyBullets.length-1; i >= 0; i--) {
+    const b = enemyBullets[i];
+    b.y += ENEMY_BULLET_SPD * dt * 0.06;
+    if (b.y > GAME_H+10) { enemyBullets.splice(i,1); continue; }
+    if (!player.invincible &&
+        b.x > player.x-player.w/2 && b.x < player.x+player.w/2 &&
+        b.y > player.y-player.h/2 && b.y < player.y+player.h/2) {
+      enemyBullets.splice(i,1); loseLife(now);
+    }
+  }
+}
+function drawEnemyBullets() {
+  ctx.save(); ctx.fillStyle='#f60'; ctx.shadowColor='#f40'; ctx.shadowBlur=8;
+  for (const b of enemyBullets) ctx.fillRect(b.x-2, b.y-6, 4, 12);
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO K – PARTÍCULAS DE EXPLOSÃO
+───────────────────────────────────────────────────────────────── */
+const particles = [];
+function spawnExplosion(x, y) {
+  for (let i = 0; i < Math.floor(Math.random()*5)+8; i++) {
+    const a = Math.random()*Math.PI*2, s = Math.random()*2.5+0.5;
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life:1,
+      r:Math.random()*3+1, color:['#f40','#f80','#fc0','#f20'][Math.floor(Math.random()*4)] });
+  }
+}
+function updateParticles(dt) {
+  for (let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx*dt*0.05; p.y += p.vy*dt*0.05; p.life -= 0.025*dt*0.06;
+    if (p.life <= 0) particles.splice(i,1);
+  }
+}
+function drawParticles() {
+  ctx.save();
+  for (const p of particles) {
+    ctx.globalAlpha=p.life; ctx.fillStyle=p.color; ctx.shadowColor=p.color; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1; ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO L – COLISÃO: TIRO DO PLAYER vs INIMIGO
+───────────────────────────────────────────────────────────────── */
+function checkCollisions(now) {
+  for (let bi = playerBullets.length-1; bi >= 0; bi--) {
+    const b = playerBullets[bi];
+    for (let ei = enemies.length-1; ei >= 0; ei--) {
+      const e = enemies[ei];
+      const dx = b.x-e.x, dy = b.y-e.y;
+      if (Math.sqrt(dx*dx+dy*dy) < e.w/2+5) {
+        spawnExplosion(e.x, e.y);
+        enemies.splice(ei,1); playerBullets.splice(bi,1);
+        score += POINTS_PER_KILL; updateHUD();
+        if (enemies.length === 0) levelComplete(now);
+        break;
+      }
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO M – PERDA DE VIDA
+   Ativa invencibilidade de 2s para evitar dano múltiplo imediato.
+───────────────────────────────────────────────────────────────── */
+function loseLife(now) {
+  if (--lives <= 0) { endGame(false); return; }
+  updateHUD();
+  player.invincible = true; player.invTimer = 2000;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO N – PROGRESSÃO DE NÍVEL
+   Overlay de 2s, depois gera novos inimigos do próximo nível.
+───────────────────────────────────────────────────────────────── */
+function levelComplete(now) {
+  paused = true;
+  if (level >= MAX_LEVEL) { endGame(true); return; }
+  level++; updateHUD();
+  levelTitleEl.textContent = `NÍVEL ${level}`;
+  levelSubEl.textContent   = `${enemyCount(level)} inimigos — Prepare-se!`;
+  levelEl.style.display    = 'flex';
+  setTimeout(() => {
+    levelEl.style.display = 'none';
+    playerBullets.length = 0; enemyBullets.length = 0;
+    spawnEnemies(level); paused = false;
+  }, 2000);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO O – HUD
+───────────────────────────────────────────────────────────────── */
+function updateHUD() {
+  hudLivesEl.textContent = '♥ '.repeat(lives) + '♡ '.repeat(MAX_LIVES-lives);
+  hudScoreEl.textContent = `PONTOS: ${score}`;
+  hudLevelEl.textContent = `NÍV: ${level}/${MAX_LEVEL}`;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO P – FIM DE JOGO
+───────────────────────────────────────────────────────────────── */
+function endGame(victory) {
+  gameRunning = false; cancelAnimationFrame(animFrameId); saveRecord(score);
+  goTitleEl.textContent = victory ? '✦ VOCÊ VENCEU! ✦' : 'GAME OVER';
+  goTitleEl.style.color = victory ? '#00ff88' : '#ff4d4d';
+  goScoreEl.textContent = score; goRecordEl.textContent = getRecord();
+  gameoverEl.style.display = 'flex';
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO Q – TECLADO
+───────────────────────────────────────────────────────────────── */
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (e.code==='Space' && gameRunning && !paused) { e.preventDefault(); playerShoot(performance.now()); }
+  if (e.code==='KeyM'  && gameRunning && confirmEl.style.display!=='flex') { e.preventDefault(); showConfirm(); }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO R – OVERLAY DE CONFIRMAÇÃO (tecla M)
+───────────────────────────────────────────────────────────────── */
+function showConfirm() { paused=true; confirmEl.style.display='flex'; }
+function hideConfirm() { confirmEl.style.display='none'; paused=false; }
+document.getElementById('btn-yes').addEventListener('click', ()=>{ hideConfirm(); goToMenu(); });
+document.getElementById('btn-no').addEventListener('click', hideConfirm);
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO S – CONTROLE DE TELAS
+───────────────────────────────────────────────────────────────── */
+function showMenu() {
+  menuRecordEl.textContent = getRecord();
+  menuEl.style.display='flex'; hudEl.style.display='none';
+  gameoverEl.style.display='none'; confirmEl.style.display='none'; levelEl.style.display='none';
+}
+function goToMenu() {
+  gameRunning = false; cancelAnimationFrame(animFrameId); showMenu();
+  function menuLoop(ts) {
+    if (gameRunning) return;
+    const dt = ts-(lastTime||ts); lastTime=ts;
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,GAME_W,GAME_H);
+    updateStars(dt); drawStars();
+    animFrameId = requestAnimationFrame(menuLoop);
+  }
+  animFrameId = requestAnimationFrame(menuLoop);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO T – INICIAR PARTIDA
+───────────────────────────────────────────────────────────────── */
+function startGame() {
+  score=0; lives=MAX_LIVES; level=1; gameRunning=true; paused=false; lastTime=0;
+  playerBullets.length=0; enemyBullets.length=0; particles.length=0;
+  resetPlayer(); initStars(); spawnEnemies(level); updateHUD();
+  menuEl.style.display='none'; gameoverEl.style.display='none';
+  confirmEl.style.display='none'; levelEl.style.display='none';
+  hudEl.style.display='flex';
+  cancelAnimationFrame(animFrameId);
+  animFrameId = requestAnimationFrame(gameLoop);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO U – LOOP PRINCIPAL DO JOGO
+   requestAnimationFrame garante ~60fps. Delta time (dt) torna a
+   velocidade independente da taxa de atualização do monitor.
+───────────────────────────────────────────────────────────────── */
+function gameLoop(timestamp) {
+  if (!gameRunning) return;
+  const dt = timestamp-(lastTime||timestamp); lastTime=timestamp;
+  if (!paused) {
+    updateStars(dt); updatePlayer(dt); updatePlayerBullets(dt);
+    updateEnemies(dt,timestamp); updateEnemyBullets(dt,timestamp);
+    updateParticles(dt); checkCollisions(timestamp);
+  }
+  ctx.fillStyle='#000008'; ctx.fillRect(0,0,GAME_W,GAME_H);
+  drawStars();
+  ctx.strokeStyle='rgba(0,255,136,0.07)'; ctx.setLineDash([5,15]);
+  ctx.beginPath(); ctx.moveTo(0,GAME_H-80); ctx.lineTo(GAME_W,GAME_H-80); ctx.stroke();
+  ctx.setLineDash([]);
+  drawParticles(); drawEnemies(); drawPlayerBullets(); drawEnemyBullets(); drawPlayer();
+  animFrameId = requestAnimationFrame(gameLoop);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SEÇÃO V – BOTÕES E INICIALIZAÇÃO
+───────────────────────────────────────────────────────────────── */
+document.getElementById('btn-play').addEventListener('click', startGame);
+document.getElementById('btn-restart').addEventListener('click', ()=>{ gameoverEl.style.display='none'; startGame(); });
+document.getElementById('btn-gomenu').addEventListener('click', ()=>{ gameoverEl.style.display='none'; goToMenu(); });
+
+initStars();
+goToMenu();
+</script>
+</body>
+</html>
