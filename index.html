@@ -154,7 +154,7 @@
   <div id="hud">
     <span class="hud-lives" id="hud-lives">♥ ♥ ♥ ♥ ♥</span>
     <span class="hud-score" id="hud-score">PONTOS: 0</span>
-    <span class="hud-level" id="hud-level">NÍV: 1/15</span>
+    <span class="hud-level" id="hud-level">NÍV: 1/6</span>
   </div>
 
   <div id="menu">
@@ -258,7 +258,7 @@ window.addEventListener('resize', applyScale);
 /* ─────────────────────────────────────────────────────────────────
    SEÇÃO C – CONSTANTES DO JOGO
 ───────────────────────────────────────────────────────────────── */
-const MAX_LEVEL        = 15;
+const MAX_LEVEL        = 6;
 const MAX_LIVES        = 5;
 const POINTS_PER_KILL  = 100;
 const SHOOT_COOLDOWN   = 1000; // 1 segundo em ms
@@ -381,11 +381,150 @@ function drawPlayerBullets() {
    frequência de tiro também aumentam a cada nível.
 ───────────────────────────────────────────────────────────────── */
 const enemies = [];
-const enemyCount = lvl => Math.min(3 + (lvl-1)*2, 30);
+const enemyCount = lvl => lvl === MAX_LEVEL ? 0 : Math.min(3 + (lvl-1)*2, 30);
 const enemySpeed = lvl => 1 + (lvl-1)*0.2;
 
+/* ── CHEFE FINAL ── */
+let boss = null;
+const BOSS_MAX_LIVES   = 7;
+const BOSS_SHOOT_CD    = 3000; // 3 segundos
+const BOSS_W           = 72;
+const BOSS_H           = 60;
+const BOSS_DIRS = [
+  { vx: 0,    vy: 1  }, // baixo
+  { vx: 0,    vy: -1 }, // cima
+  { vx: 1,    vy: 0  }, // direita
+  { vx: -1,   vy: 0  }, // esquerda
+  { vx: 0.71, vy: 0.71  }, // diagonal ↘
+  { vx: -0.71,vy: 0.71  }, // diagonal ↙
+  { vx: 0.71, vy: -0.71 }, // diagonal ↗
+  { vx: -0.71,vy: -0.71 }, // diagonal ↖
+];
+
+function spawnBoss() {
+  boss = {
+    x: GAME_W / 2, y: 130,
+    w: BOSS_W, h: BOSS_H,
+    lives: BOSS_MAX_LIVES,
+    dir: 1, spd: 1.2,
+    shootTimer: BOSS_SHOOT_CD,
+    flashTimer: 0
+  };
+}
+
+function updateBoss(dt, now) {
+  if (!boss) return;
+  // movimento lateral lento
+  boss.x += boss.spd * boss.dir * dt * 0.06;
+  if (boss.x + boss.w/2 > GAME_W - 10) { boss.dir = -1; boss.x = GAME_W - boss.w/2 - 10; }
+  if (boss.x - boss.w/2 < 10)          { boss.dir =  1; boss.x = boss.w/2 + 10; }
+
+  // flash ao tomar dano
+  if (boss.flashTimer > 0) boss.flashTimer -= dt;
+
+  // disparo em todas as direções
+  boss.shootTimer -= dt;
+  if (boss.shootTimer <= 0) {
+    boss.shootTimer = BOSS_SHOOT_CD;
+    const spd = ENEMY_BULLET_SPD * 1.4;
+    for (const d of BOSS_DIRS) {
+      enemyBullets.push({ x: boss.x, y: boss.y, vx: d.vx * spd, vy: d.vy * spd, isBoss: true });
+    }
+  }
+}
+
+function drawBoss() {
+  if (!boss) return;
+  const {x, y, w, h, flashTimer} = boss;
+  ctx.save();
+
+  // corpo principal – triângulo invertido grande roxo/vermelho
+  const flash = flashTimer > 0 && Math.floor(flashTimer / 60) % 2 === 0;
+  ctx.fillStyle    = flash ? '#ffffff' : '#cc00ff';
+  ctx.shadowColor  = '#cc00ff';
+  ctx.shadowBlur   = 22;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h/2);
+  ctx.lineTo(x - w/2, y - h/2);
+  ctx.lineTo(x + w/2, y - h/2);
+  ctx.closePath();
+  ctx.fill();
+
+  // miolo escuro
+  ctx.fillStyle = '#440055'; ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h/4);
+  ctx.lineTo(x - w/4, y - h/4);
+  ctx.lineTo(x + w/4, y - h/4);
+  ctx.closePath();
+  ctx.fill();
+
+  // olho central
+  ctx.fillStyle = '#ff00ff'; ctx.shadowColor = '#ff00ff'; ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.arc(x, y - 4, 8, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(x, y - 4, 3, 0, Math.PI*2); ctx.fill();
+
+  // asas
+  ctx.fillStyle = '#880088'; ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(x - w/2, y - h/2);
+  ctx.lineTo(x - w*0.9, y - h/6);
+  ctx.lineTo(x - w*0.15, y + h/5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + w/2, y - h/2);
+  ctx.lineTo(x + w*0.9, y - h/6);
+  ctx.lineTo(x + w*0.15, y + h/5);
+  ctx.closePath();
+  ctx.fill();
+
+  // barra de vidas do chefe
+  const barW = 200, barH = 10;
+  const bx = GAME_W/2 - barW/2, by = 8;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(bx, by, barW, barH);
+  ctx.fillStyle = boss.lives > 3 ? '#cc00ff' : '#ff3300';
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6;
+  ctx.fillRect(bx, by, barW * (boss.lives / BOSS_MAX_LIVES), barH);
+  ctx.strokeStyle = '#888'; ctx.shadowBlur = 0; ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, barW, barH);
+
+  // texto vidas chefe
+  ctx.fillStyle = '#fff'; ctx.font = '7px "Press Start 2P", monospace';
+  ctx.textAlign = 'center'; ctx.shadowBlur = 0;
+  ctx.fillText(`CHEFE  ${boss.lives}/${BOSS_MAX_LIVES}`, GAME_W/2, by + barH + 11);
+  ctx.textAlign = 'left';
+
+  ctx.restore();
+}
+
+function checkBossCollisions(now) {
+  if (!boss) return;
+  for (let bi = playerBullets.length-1; bi >= 0; bi--) {
+    const b = playerBullets[bi];
+    const dx = b.x - boss.x, dy = b.y - boss.y;
+    if (Math.abs(dx) < boss.w/2 + 4 && Math.abs(dy) < boss.h/2 + 4) {
+      playerBullets.splice(bi, 1);
+      boss.lives--;
+      boss.flashTimer = 300;
+      score += POINTS_PER_KILL * 3; updateHUD();
+      if (boss.lives <= 0) {
+        spawnExplosion(boss.x, boss.y);
+        spawnExplosion(boss.x - 20, boss.y + 15);
+        spawnExplosion(boss.x + 20, boss.y - 10);
+        boss = null;
+        levelComplete(now);
+      }
+    }
+  }
+}
+
 function spawnEnemies(lvl) {
-  enemies.length = 0;
+  enemies.length = 0; boss = null;
+  if (lvl === MAX_LEVEL) { spawnBoss(); return; }
   const count = enemyCount(lvl), cols = Math.min(count, 6);
   const rows = Math.ceil(count/cols), spd = enemySpeed(lvl);
   let id = 0;
@@ -399,6 +538,7 @@ function spawnEnemies(lvl) {
   }
 }
 function updateEnemies(dt, now) {
+  updateBoss(dt, now);
   for (let i = enemies.length-1; i >= 0; i--) {
     const e = enemies[i];
     e.x += e.spd * e.dir * dt * 0.06;
@@ -412,6 +552,7 @@ function updateEnemies(dt, now) {
   }
 }
 function drawEnemies() {
+  drawBoss();
   ctx.save();
   for (const {x,y,w,h} of enemies) {
     ctx.fillStyle='#ff3333'; ctx.shadowColor='#f00'; ctx.shadowBlur=10;
@@ -432,8 +573,14 @@ const enemyBullets = [];
 function updateEnemyBullets(dt, now) {
   for (let i = enemyBullets.length-1; i >= 0; i--) {
     const b = enemyBullets[i];
-    b.y += ENEMY_BULLET_SPD * dt * 0.06;
-    if (b.y > GAME_H+10) { enemyBullets.splice(i,1); continue; }
+    if (b.vx !== undefined) {
+      // bala direcional do chefe
+      b.x += b.vx * dt * 0.06;
+      b.y += b.vy * dt * 0.06;
+    } else {
+      b.y += ENEMY_BULLET_SPD * dt * 0.06;
+    }
+    if (b.y > GAME_H+20 || b.y < -20 || b.x < -20 || b.x > GAME_W+20) { enemyBullets.splice(i,1); continue; }
     if (!player.invincible &&
         b.x > player.x-player.w/2 && b.x < player.x+player.w/2 &&
         b.y > player.y-player.h/2 && b.y < player.y+player.h/2) {
@@ -442,8 +589,16 @@ function updateEnemyBullets(dt, now) {
   }
 }
 function drawEnemyBullets() {
-  ctx.save(); ctx.fillStyle='#f60'; ctx.shadowColor='#f40'; ctx.shadowBlur=8;
-  for (const b of enemyBullets) ctx.fillRect(b.x-2, b.y-6, 4, 12);
+  ctx.save();
+  for (const b of enemyBullets) {
+    if (b.isBoss) {
+      ctx.fillStyle='#ff00ff'; ctx.shadowColor='#cc00ff'; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillStyle='#f60'; ctx.shadowColor='#f40'; ctx.shadowBlur=8;
+      ctx.fillRect(b.x-2, b.y-6, 4, 12);
+    }
+  }
   ctx.restore();
 }
 
@@ -478,6 +633,7 @@ function drawParticles() {
    SEÇÃO L – COLISÃO: TIRO DO PLAYER vs INIMIGO
 ───────────────────────────────────────────────────────────────── */
 function checkCollisions(now) {
+  checkBossCollisions(now);
   for (let bi = playerBullets.length-1; bi >= 0; bi--) {
     const b = playerBullets[bi];
     for (let ei = enemies.length-1; ei >= 0; ei--) {
@@ -487,7 +643,7 @@ function checkCollisions(now) {
         spawnExplosion(e.x, e.y);
         enemies.splice(ei,1); playerBullets.splice(bi,1);
         score += POINTS_PER_KILL; updateHUD();
-        if (enemies.length === 0) levelComplete(now);
+        if (enemies.length === 0 && !boss) levelComplete(now);
         break;
       }
     }
@@ -513,7 +669,9 @@ function levelComplete(now) {
   if (level >= MAX_LEVEL) { endGame(true); return; }
   level++; updateHUD();
   levelTitleEl.textContent = `NÍVEL ${level}`;
-  levelSubEl.textContent   = `${enemyCount(level)} inimigos — Prepare-se!`;
+  levelSubEl.textContent   = level === MAX_LEVEL
+    ? '⚠ CHEFE FINAL — BOA SORTE! ⚠'
+    : `${enemyCount(level)} inimigos — Prepare-se!`;
   levelEl.style.display    = 'flex';
   setTimeout(() => {
     levelEl.style.display = 'none';
@@ -586,7 +744,7 @@ function goToMenu() {
    SEÇÃO T – INICIAR PARTIDA
 ───────────────────────────────────────────────────────────────── */
 function startGame() {
-  score=0; lives=MAX_LIVES; level=1; gameRunning=true; paused=false; lastTime=0;
+  score=0; lives=MAX_LIVES; level=1; gameRunning=true; paused=false; lastTime=0; boss=null;
   playerBullets.length=0; enemyBullets.length=0; particles.length=0;
   resetPlayer(); initStars(); spawnEnemies(level); updateHUD();
   menuEl.style.display='none'; gameoverEl.style.display='none';
